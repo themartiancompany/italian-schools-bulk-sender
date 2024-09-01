@@ -17,10 +17,10 @@ _root_requirements() {
   _os="$( \
     uname \
       -o)"
-  if [[ "${_os}" != "Android" ]]; then
-    _check_cmd \
-      "curl"
-  fi
+  _check_cmd \
+    "email-bulk-sender"
+  _check_cmd \
+    "italian-schools-data-fetcher"
 }
 
 # shellcheck disable=SC2034
@@ -299,11 +299,10 @@ _show_config() {
   _msg_info "${app_name} configuration"
   _msg_info "                 Get date:   $(_get "get" "date")"
   _msg_info "           Data Catalogue:   $(_get "data" "catalogue")"
-  _msg_info "           Target command:   $(_get "target" "command")"
-  _msg_info "               Target key:   $(_get "target" "key")"
-  _msg_info "             Target value:   $(_get "target" "value")"
-  _msg_info "                 Out file:   $(_get "out" "file")"
-  _msg_info "              Max results:   $(_get "results" "max")"
+  _msg_info "               User email:   $(_get "user" "email")"
+  _msg_info "            User password:   $(_get "user" "password")"
+  _msg_info "            Email subject:   $(_get "email" "subject")"
+  _msg_info "               Email body:   $(_get "email" "body")"
 }
 
 # Show help usage, with an exit status.
@@ -318,26 +317,22 @@ _usage() {
       _usage_text << \
         ENDUSAGETEXT || true
 
-Gets Italian schools data.
+Instantly communicate with all schools in the country.
 
 Usage:
   $(_get "app" "name")
     [options]
-    <command>
-  commands:
-    get                        Get the data
-    keys                       Get all catalogue keys
   options:
      -d <data_catalogue>       Data catalogue (main).
                                Default: $(_get "data" "catalogue")
-     -K <target_key>           Key to filter.
-                               Default: $(_get "target" "key")
-     -V <target_value>         Value for the key to filter.
-                               Default: $(_get "target" "value")
-     -o <out_file>             Filtered file.
-                               Default: $(_get "out" "file")
-     -n <results_max>          Maximum amount of results.
-                               Default: $(_get "results" "max")
+     -e <email>                User email.
+                               Default: $(_get "user" "email")
+     -k <password>             User password
+                               Default: $(_get "user" "password")
+     -s <subject>              Email subject
+                               Default: $(_get "email" "subject")
+     -b <body>                 Email body
+                               Default: $(_get "email" "body")
 
      -h                        This message.
      -v                        Enable verbose output
@@ -355,15 +350,15 @@ _global_variables
 # shellcheck disable=SC2034
 while \
   getopts \
-    'd:K:V:o:n:cvh?' \
+    'd:e:k:s:b:cvh?' \
     arg; do
   case \
     "${arg}" in
     d) override_data_catalogue="${OPTARG}" ;;
-    K) override_target_key="${OPTARG}" ;;
-    V) override_target_value="${OPTARG}" ;;
-    o) override_out_file="${OPTARG}" ;;
-    n) override_results_max="${OPTARG}" ;;
+    e) override_user_email="${OPTARG}" ;;
+    k) override_user_password="${OPTARG}" ;;
+    s) override_email_subject="${OPTARG}" ;;
+    b) override_email_body="${OPTARG}" ;;
     c) override_color="y" ;;
     v) override_quiet="n" ;;
     h|?) _set_overrides && \
@@ -383,39 +378,26 @@ shift \
   $(( \
     OPTIND - 1 \
   ))
-(( "$#" < 1 )) && \
-  _set \
-    "target" \
-    "command" \
-    "keys"
-(( 0 < "$#" )) && \
-  _set \
-    "target" \
-    "command" \
-    "${1}"
 _set_overrides
 app_opts=(
-  "$(_get \
-       "target" \
-       "command")"
   "$(_get \
        "data" \
        "catalogue")"
   "$(_get \
-       "target" \
-       "key")"
- "$(_get \
-       "target" \
-       "value")"
+       "user" \
+       "email")"
   "$(_get \
-       "out" \
-       "file")"
+       "user" \
+       "password")"
   "$(_get \
-       "results" \
-       "max")"
+       "email" \
+       "subject")"
+  "$(_get \
+       "email" \
+       "body")"
 )
 _show_config
-_italian_schools_data_fetcher \
+_italian_schools_bulk_sender \
   "${app_opts[@]}"
 
 # vim:set sw=2 sts=-1 et:
