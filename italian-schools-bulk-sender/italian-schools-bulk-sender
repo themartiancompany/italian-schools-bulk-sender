@@ -28,6 +28,8 @@ _global_variables() {
   send_date=""
   user_email=""
   user_password=""
+  smtp_server=""
+  smtp_port=""
   email_subject=""
   email_body=""
   data_catalogue=""
@@ -38,8 +40,10 @@ _global_variables() {
 _recipients_get() {
   local \
     _catalogue="${1}" \
+    _results_max="0" \
     _fetcher_opts=() \
     _content \
+    _content_cmd=() \
     _data=() \
     _line \
     _db \
@@ -60,9 +64,23 @@ _recipients_get() {
         1
     fi
   fi
+  _content_cmd=(
+    cat
+      "${_db}"
+    )
   _content="$( \
-    cat \
-      "${_db}")"
+    "${_content_cmd[@]}" | \
+      tail \
+        -n \
+          +2)"
+  if [[ "${_results_max}" != 0 ]]; then
+    _content="$( \
+      echo \
+        "${_content}" | \
+        head \
+          -n \
+            "${_results_max}")"
+  fi
   set \
     -o \
     noglob
@@ -102,32 +120,106 @@ _italian_schools_bulk_sender() {
     _catalogue="${1}" \
     _email="${2}" \
     _password="${3}" \
-    _subject="${4}" \
-    _body="${5}" \
+    _host="${4}" \
+    _port="${5}" \
+    _subject="${6}" \
+    _body="${7}" \
     _conf_dir \
+    _email_bulk_sender_opts=() \
     _recipients=() \
-    _session
+    _session \
+    _session_unsent
+  if [[ "${quiet}" != "y" ]]; then
+    _email_bulk_sender_opts+=(
+      -v
+    )
+  fi
+  if [[ "${_email}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -e
+        "${_email}"
+    )
+  fi
+  if [[ "${_password}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -k
+        "${_password}"
+    )
+  fi
+  if [[ "${_host}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -H
+        "${_host}"
+    )
+  fi
+  if [[ "${_port}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -P
+        "${_port}"
+    )
+  fi
+  if [[ "${_subject}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -s
+        "${_subject}"
+    )
+  fi
+  if [[ "${_subject}" != "" ]]; then
+    _email_bulk_sender_opts+=(
+      -b
+        "${_body}"
+    )
+  fi
   _conf_dir="${HOME}/.config/$(_get "app" "name")"
   _session="${_conf_dir}/${_catalogue}-${_email}.txt"
+  _session_unsent="${_conf_dir}/${_catalogue}-${_email}-unsent.txt"
   _db_dir="${HOME}/.config/italian-schools-data-fetcher"
   _recipients_get \
     "${_catalogue}"
   _i=0
+  if [[ ! -e "${_session}" ]]; then
+    _msg_info \
+      "new session"
+    mkdir \
+      -p \
+      "$(dirname \
+           "${_session}")"
+    touch \
+      "${_session}"
+    touch \
+      "${_session_unsent}"
+  fi
   _resume="$( \
     cat \
       "${_session}")"
   if [[ "${_resume}" != "" ]]; then
-    _counter="${_resume}"
+    _i="${_resume}"
+    _msg_info \
+      "resuming from ${_i}"
   fi
   _total="${#_recipients[@]}"
   while \
     (( "${_i}" < "${_total}" )); do
-    echo \
-      "${_recipients[$_i]}"
+    if \
+      [[ "${_recipients[$_i]}" == "" ]] || \
+      [[ "${_recipients[$_i]}" == "Non Disponibile" ]]; then
+      _msg_warning \
+        "email far recipient '${_i}' was not available"
+      echo \
+        "${_i} >> \
+          ""${_session_unsent}"
+    else
+      email-bulk-sender \
+        "${_email_bulk_sender_opts[@]}" \
+        "${_recipients[$_i]}"
+    fi
     _i="$((_i + 1))"
+    echo \
+      "${_i}" > \
+      "${_session}"
   done
-  # echo \
-  #   "${_recipients[*]}"
+  rm \
+    "${_session}"
 }
 
 _set_overrides() {
@@ -147,6 +239,14 @@ _set_overrides() {
     "user" \
     "password" \
     ""
+  _set_override \
+    "smtp" \
+    "server" \
+    ""
+  _set_override \
+    "smtp" \
+    "port" \
+    "465"
   _set_override \
     "email" \
     "subject" \
@@ -174,6 +274,8 @@ _show_config() {
   _msg_info "           Data Catalogue:   $(_get "data" "catalogue")"
   _msg_info "               User email:   $(_get "user" "email")"
   _msg_info "            User password:   $(_get "user" "password")"
+  _msg_info "              SMTP server:   $(_get "smtp" "server")"
+  _msg_info "                SMTP port:   $(_get "smtp" "port")"
   _msg_info "            Email subject:   $(_get "email" "subject")"
   _msg_info "               Email body:   $(_get "email" "body")"
 }
@@ -202,6 +304,10 @@ Usage:
                                Default: $(_get "user" "email")
      -k <password>             User password
                                Default: $(_get "user" "password")
+     -H <smtp_server>          SMTP server
+                               Default: $(_get "smtp" "server")
+     -P <smtp_port>            SMTP port
+                               Default: $(_get "smtp" "port")
      -s <subject>              Email subject
                                Default: $(_get "email" "subject")
      -b <body>                 Email body
@@ -223,13 +329,15 @@ _global_variables
 # shellcheck disable=SC2034
 while \
   getopts \
-    'd:e:k:s:b:cvh?' \
+    'd:e:k:H:P:s:b:cvh?' \
     arg; do
   case \
     "${arg}" in
     d) override_data_catalogue="${OPTARG}" ;;
     e) override_user_email="${OPTARG}" ;;
     k) override_user_password="${OPTARG}" ;;
+    H) override_smtp_server="${OPTARG}" ;;
+    P) override_smtp_port="${OPTARG}" ;;
     s) override_email_subject="${OPTARG}" ;;
     b) override_email_body="${OPTARG}" ;;
     c) override_color="y" ;;
@@ -262,6 +370,12 @@ app_opts=(
   "$(_get \
        "user" \
        "password")"
+  "$(_get \
+       "smtp" \
+       "server")"
+  "$(_get \
+       "smtp" \
+       "port")"
   "$(_get \
        "email" \
        "subject")"
