@@ -25,124 +25,41 @@ _root_requirements() {
 
 # shellcheck disable=SC2034
 _global_variables() {
-  get_date=""
-  target_command=""
+  send_date=""
+  user_email=""
+  user_password=""
+  email_subject=""
+  email_body=""
   data_catalogue=""
-  target_key=""
-  target_value=""
-  out_file=""
-  results_max=""
   color=""
   quiet=""
 }
 
-_catalogue_main_get() {
-  local \
-    _domain \
-    _dir \
-    _catalogue \
-    _curl_opts=() \
-    _dest \
-    _curl \
-    _os
-  _os="$( \
-    uname \
-      -o)"
-  _domain="https://dati.istruzione.it"
-  _dir="opendata/opendata/catalogo/elements1"
-  _catalogue="SCUANAGRAFESTAT20242520240901.csv"
-  _dest="${_conf_dir}/main.csv"
-  _url="${_domain}/${_dir}/${_catalogue}"
-  if [[ "${_os}" == "Android" ]]; then
-    _curl="/system/bin/curl"
-  else
-    _curl="$( \
-      command \
-        -v \
-        curl)"
-  fi
-  if [[ ! -d "${_conf_dir}" ]]; then
-    mkdir \
-      -p \
-      "${_conf_dir}"
-  fi
-  if [[ ! -e "${_dest}" ]]; then
-    _curl_opts=(
-      -L
-      -o "${_dest}"
-    )
-    _msg_info \
-      "getting catalogue '${_catalogue}' into 'main'"
-    "${_curl}" \
-      "${_curl_opts[@]}" \
-      "${_url}"
-  else
-    _msg_info \
-      "using cached catalogue"
-  fi
-}
-
-_key_index_find() {
+_recipients_get() {
   local \
     _catalogue="${1}" \
-    _target_key="${2}" \
-    _keys=() \
-    _key \
-    _found \
-    _column
-  _keys=( $( \
-    _keys_get \
-      "${_catalogue}")
-  )
-  _column=1
-  _found="false"
-  for _key \
-    in "${_keys[@]}"; do
-    if [[ "${_key}" == "${_target_key}" ]]; then
-      _found="true"
-      break
-    fi
-    _column="$(( \
-      _column + 1))"
-  done
-  if [[ "${_found}" == 'false' ]]; then
-    _msg_error \
-      "key '${_target_key}' not found in catalogue '${_catalogue}'" \
-      0
-    _msg_error \
-      "available keys: ${_keys[*]}" \
-      1
-  fi
-  echo \
-    "${_column}"
-}
-
-_key_value_filter() {
-  local \
-    _key="${1}" \
-    _value="${2}" \
-    _out="${3}" \
-    _results_max="${4}" \
-    _target_value \
-    _data=() \
-    _results=() \
+    _fetcher_opts=() \
     _content \
+    _data=() \
+    _line \
+    _db \
     _counter
-  _db="${_conf_dir}/${_catalogue}.csv"
-  _column="$( \
-    _key_index_find \
-      "${_catalogue}" \
-      "${_key}")"
-  _keys=(
-      $(_keys_get \
-        "${_catalogue}")
-  )
-  _header="$( \
-    cat \
-      "${_db}" | \
-      head \
-        -n \
-        1)"
+  _db="${_db_dir}/${_catalogue}.csv"
+  if [[ "${quiet}" != "y" ]]; then
+    _fetcher_opts+=(
+      -v
+    )
+  fi
+  if [[ ! -e "${_db}" ]]; then
+    if [[ "${_catalogue}" == "main" ]]; then
+      italian-schools-data-fetcher \
+        "${_fetcher_opts[@]}"
+    else
+      _msg_error \
+        "catalogue not found" \
+        1
+    fi
+  fi
   _content="$( \
     cat \
       "${_db}")"
@@ -159,129 +76,85 @@ _key_value_filter() {
   unset \
     _content
   _counter=1
-  _msg_info \
-    "db size: ${#_data[@]} entries"
+  _total="${#_data[@]}"
   for _line \
-    in ${_data[@]}; do 
-    # _grep="$( \
-    #   echo \
-    #    "${_line}" | \
-    #    grep "${_value}" || \
-    #    true)" 
-    # if [[ "${_grep}" != "" ]]; then
-    if [[ "${_line}" == *"${_value}"* ]]; then
-      _target_value="$( \
-        echo \
-          "${_line}" | \
-          awk \
-            -F ',' \
-            '{print $'${_column}'}')"
-      if [[ "${_value}" == "${_target_value}" ]]; then
-        _results+=(
-          "${_line}"
-        )
-      fi
-    fi || \
-      true
-    if (( ${_counter} % 2000 == 0 )) ; then
+    in "${_data[@]}"; do
+    _email="$( \
+      echo \
+        "${_line}" | \
+        awk \
+          -F ',' \
+          '{print $17}')" # email field
+    _recipients+=(
+      "${_email}"
+    )
+    if (( ${_counter} % 500 == 0 )) ; then
       _msg_info \
-        "result ${_counter}, results found '${#_results[@]}'"
+        "result ${_counter} out of ${_total}'"
     fi
     _counter="$(( \
       _counter + 1))"
-    if (( "${_results_max}" < "${#_results[@]}" )); then
-      break
-    fi
-  done
-  echo \
-    "${_header}" >> \
-    "${_out}"
-  for _result \
-    in "${_results[@]}"; do
-  echo \
-    "${_result}" >> \
-    "${_out}"
   done
 }
 
-_keys_get() {
+_italian_schools_bulk_sender() {
   local \
     _catalogue="${1}" \
-    _db \
-    _keys_line \
-    _keys=()
-  _db="${_conf_dir}/${_catalogue}.csv"
-  _keys_line="$( \
-    cat \
-      "${_db}" | \
-      head \
-        -n \
-        1)"
-  _keys=(
-    )
-  IFS="," \
-  read \
-    -ra \
-    _keys <<< \
-    "${_keys_line}"
-  echo \
-    "${_keys[*]}"
-}
-
-_italian_schools_data_fetcher() {
-  local \
-    _command="${1}" \
-    _catalogue="${2}" \
-    _key="${3}" \
-    _value="${4}" \
-    _out="${5}" \
-    _results_max="${6}" \
-    _conf_dir
+    _email="${2}" \
+    _password="${3}" \
+    _subject="${4}" \
+    _body="${5}" \
+    _conf_dir \
+    _recipients=() \
+    _session
   _conf_dir="${HOME}/.config/$(_get "app" "name")"
-  if [[ "${_catalogue}" == "main" ]]; then
-    "_catalogue_${_catalogue}_get"
+  _session="${_conf_dir}/${_catalogue}-${_email}.txt"
+  _db_dir="${HOME}/.config/italian-schools-data-fetcher"
+  _recipients_get \
+    "${_catalogue}"
+  _i=0
+  _resume="$( \
+    cat \
+      "${_session}")"
+  if [[ "${_resume}" != "" ]]; then
+    _counter="${_resume}"
   fi
-  if [[ "${_command}" == "keys" ]]; then
-    "_${_command}_get" \
-      "${_catalogue}"
-  elif [[ "${_command}" == "get" ]]; then
-    _key_value_filter \
-      "${_key}" \
-      "${_value}" \
-      "${_out}" \
-      "${_results_max}"
-  fi
+  _total="${#_recipients[@]}"
+  while \
+    (( "${_i}" < "${_total}" )); do
+    echo \
+      "${_recipients[$_i]}"
+    _i="$((_i + 1))"
+  done
+  # echo \
+  #   "${_recipients[*]}"
 }
 
 _set_overrides() {
-  _set_override \
-    "get" \
-    "date" \
-    "$(_get_date_human)"
-  _set_override \
-    "target" \
-    "command" \
-    "keys"
   _set_override \
     "data" \
     "catalogue" \
     "main"
   _set_override \
-    "target" \
-    "key" \
-    "REGIONE"
+    "send" \
+    "date" \
+    "$(_get_date_human)"
   _set_override \
-    "target" \
-    "value" \
+    "user" \
+    "email" \
     ""
   _set_override \
-    "out" \
-    "file" \
-    "results.csv"
+    "user" \
+    "password" \
+    ""
   _set_override \
-    "results" \
-    "max" \
-    "10"
+    "email" \
+    "subject" \
+    ""
+  _set_override \
+    "email" \
+    "body" \
+    ""
   if [[ -v override_color ]]; then
     color="${override_color}"
   elif [[ -z "${color}" ]]; then
@@ -297,7 +170,7 @@ _set_overrides() {
 # Shows configuration options.
 _show_config() {
   _msg_info "${app_name} configuration"
-  _msg_info "                 Get date:   $(_get "get" "date")"
+  _msg_info "                Send date:   $(_get "send" "date")"
   _msg_info "           Data Catalogue:   $(_get "data" "catalogue")"
   _msg_info "               User email:   $(_get "user" "email")"
   _msg_info "            User password:   $(_get "user" "password")"
